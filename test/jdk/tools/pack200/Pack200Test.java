@@ -34,10 +34,14 @@
   */
 
 import java.util.*;
+import java.util.jar.JarFile;
+import java.util.jar.JarOutputStream;
+
+import io.pack200.*;
+
 import java.io.*;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
-import java.util.jar.*;
 
 /**
  * Tests the packing/unpacking via the APIs.

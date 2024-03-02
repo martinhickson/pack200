@@ -24,7 +24,10 @@ package sun.tools.pack.verify;
 
 import java.io.*;
 import java.util.*;
-import java.util.jar.*;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
+
+import io.pack200.*;
 import xmlkit.*;
 
 public class ClassCompare {

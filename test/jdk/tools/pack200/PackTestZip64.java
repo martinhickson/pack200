@@ -25,10 +25,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
-import java.util.jar.JarEntry;
-import java.util.jar.JarFile;
-import java.util.jar.JarInputStream;
-import java.util.jar.JarOutputStream;
 import java.util.zip.ZipEntry;
 /*
  * @test
@@ -38,6 +34,11 @@ import java.util.zip.ZipEntry;
  * @run main PackTestZip64
  * @author kizune
  */
+
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
+import java.util.jar.JarInputStream;
+import java.util.jar.JarOutputStream;
 
 public class PackTestZip64 {
 

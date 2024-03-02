@@ -24,7 +24,11 @@ package sun.tools.pack.verify;
 
 import java.io.*;
 import java.util.*;
-import java.util.jar.*;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
+import java.util.jar.Manifest;
+
+import io.pack200.*;
 
 class JarFileCompare {
     /*

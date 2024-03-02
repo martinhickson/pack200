@@ -110,11 +110,14 @@ import com.sun.tools.classfile.StackMap_attribute;
 import com.sun.tools.classfile.Synthetic_attribute;
 import com.sun.tools.classfile.TypeAnnotation;
 import com.sun.tools.classfile.TypeAnnotation.Position;
+
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
+
 import static com.sun.tools.classfile.TypeAnnotation.TargetType.THROWS;
 import java.io.*;
 import java.util.*;
-import java.util.jar.JarEntry;
-import java.util.jar.JarFile;
+
 import xmlkit.XMLKit.Element;
 
 /*

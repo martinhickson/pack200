@@ -38,9 +38,10 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.jar.Pack200;
-import java.util.jar.Pack200.Packer;
 import java.util.logging.Logger;
+
+import io.pack200.Pack200;
+import io.pack200.Pack200.Packer;
 
 /*
  * Run this against a large jar file, by default the packer should generate only
