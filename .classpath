@@ -1,14 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <classpath>
-	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/jdk11.0.21_9">
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-11">
 		<attributes>
 			<attribute name="module" value="true"/>
 		</attributes>
 	</classpathentry>
 	<classpathentry kind="src" path="src/java.base/share/classes"/>
-	<classpathentry kind="src" path="test/jdk/java/util/jar/Pack200"/>
-	<classpathentry excluding="pack200-verifier/src/|typeannos/" kind="src" path="test/jdk/tools/pack200"/>
-	<classpathentry kind="src" path="test/jdk/tools/pack200/pack200-verifier/src"/>
-	<classpathentry kind="src" path="test/jdk/tools/pack200/typeannos"/>
+	<classpathentry kind="src" path="src/test/java"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>
