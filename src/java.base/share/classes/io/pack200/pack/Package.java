@@ -375,8 +375,8 @@ class Package {
                 // class uses it somehow.  In the particular case
                 // where thisClass is an inner class, it will already
                 // be a member of icRefs.
-                if (icRefs.contains(ic.thisClass)
-                    || ic.outerClass == this.thisClass) {
+                if (ic.outerClass == this.thisClass ||
+                        icRefs.contains(ic.thisClass)) {
                     // Add every relevant class to the IC attribute:
                     if (verbose > 1)
                         Utils.log.fine("Relevant IC: "+ic);

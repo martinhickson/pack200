@@ -1254,8 +1254,8 @@ class PackageReader extends BandStructure {
             cpMap[fillp++] = e;
         }
         assert(fillp == narrowLimit+wideRefs.size());
-        Arrays.sort(cpMap, 1, narrowLimit, entryOutputOrder);
-        Arrays.sort(cpMap, narrowLimit, fillp, entryOutputOrder);
+        Arrays.parallelSort(cpMap, 1, narrowLimit, entryOutputOrder);
+        Arrays.parallelSort(cpMap, narrowLimit, fillp, entryOutputOrder);
 
         if (verbose > 3) {
             Utils.log.fine("CP of "+this+" {");
