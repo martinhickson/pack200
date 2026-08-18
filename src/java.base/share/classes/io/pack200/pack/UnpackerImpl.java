@@ -133,9 +133,24 @@ public class UnpackerImpl extends TLGlobals implements Pack200.Unpacker {
             throw new NullPointerException("null output");
         }
         // Use the stream-based implementation.
-        // %%% Reconsider if native unpacker learns to memory-map the file.
+        // Prefer spilling next to the pack file (already writable), not tmpdir.
+        String prevSpill = props.getProperty(Pack200.Unpacker.SPILL_DIR);
+        boolean setSpill = (prevSpill == null || prevSpill.isEmpty())
+                && in.getParentFile() != null;
+        if (setSpill) {
+            props.setProperty(Pack200.Unpacker.SPILL_DIR,
+                    in.getParentFile().getAbsolutePath());
+        }
         try (FileInputStream instr = new FileInputStream(in)) {
             unpack(instr, out);
+        } finally {
+            if (setSpill) {
+                if (prevSpill == null) {
+                    props.remove(Pack200.Unpacker.SPILL_DIR);
+                } else {
+                    props.setProperty(Pack200.Unpacker.SPILL_DIR, prevSpill);
+                }
+            }
         }
         if (props.getBoolean(Utils.UNPACK_REMOVE_PACKFILE)) {
             in.delete();
@@ -192,63 +207,89 @@ public class UnpackerImpl extends TLGlobals implements Pack200.Unpacker {
 
         private void unpackSegment(InputStream in, JarOutputStream out) throws IOException {
             props.setProperty(io.pack200.Pack200.Unpacker.PROGRESS,"0");
-            // Process the output directory or jar output.
-            new PackageReader(pkg, in).read();
+            try {
+                new PackageReader(pkg, in).read();
 
-            if (props.getBoolean("unpack.strip.debug"))    pkg.stripAttributeKind("Debug");
-            if (props.getBoolean("unpack.strip.compile"))  pkg.stripAttributeKind("Compile");
-            props.setProperty(io.pack200.Pack200.Unpacker.PROGRESS,"50");
-            pkg.ensureAllClassFiles();
-            // Now write out the files.
-            Set<Package.Class> classesToWrite = new HashSet<>(pkg.getClasses());
-            for (Package.File file : pkg.getFiles()) {
-                String name = file.nameString;
-                JarEntry je = new JarEntry(Utils.getJarEntryName(name));
-                boolean deflate;
+                if (props.getBoolean("unpack.strip.debug"))    pkg.stripAttributeKind("Debug");
+                if (props.getBoolean("unpack.strip.compile"))  pkg.stripAttributeKind("Compile");
+                props.setProperty(io.pack200.Pack200.Unpacker.PROGRESS,"50");
+                pkg.ensureAllClassFiles();
+                Set<Package.Class> classesToWrite = new HashSet<>(pkg.getClasses());
+                for (Package.File file : pkg.getFiles()) {
+                    writeJarEntry(file, classesToWrite, out);
+                }
+                assert(classesToWrite.isEmpty());
+                props.setProperty(io.pack200.Pack200.Unpacker.PROGRESS,"100");
+            } finally {
+                pkg.reset();
+            }
+        }
 
-                deflate = (keepDeflateHint)
-                          ? (((file.options & Constants.FO_DEFLATE_HINT) != 0) ||
-                            ((pkg.default_options & Constants.AO_DEFLATE_HINT) != 0))
-                          : deflateHint;
+        /**
+         * Stream resources to the JAR. Class stubs still use a modest BAOS
+         * (reconstructed classes). Native {@code file_bits} go heap→jar or
+         * spill→jar with no second full-size buffer.
+         */
+        private void writeJarEntry(Package.File file, Set<Package.Class> classesToWrite,
+                JarOutputStream out) throws IOException {
+            String name = file.nameString;
+            JarEntry je = new JarEntry(Utils.getJarEntryName(name));
+            boolean deflate = (keepDeflateHint)
+                    ? (((file.options & Constants.FO_DEFLATE_HINT) != 0) ||
+                      ((pkg.default_options & Constants.AO_DEFLATE_HINT) != 0))
+                    : deflateHint;
+            boolean needCRC = !deflate;
 
-                boolean needCRC = !deflate;  // STORE mode requires CRC
+            if (keepModtime) {
+                LocalDateTime ldt = LocalDateTime
+                        .ofEpochSecond(file.modtime, 0, ZoneOffset.UTC);
+                je.setTimeLocal(ldt);
+            } else {
+                je.setTime((long)modtime * 1000);
+            }
 
-                if (needCRC)  crc.reset();
-                bufOut.reset();
+            try {
                 if (file.isClassStub()) {
                     Package.Class cls = file.getStubClass();
                     assert(cls != null);
+                    bufOut.reset();
+                    if (needCRC) {
+                        crc.reset();
+                    }
                     new ClassWriter(cls, needCRC ? crcOut : bufOut).write();
-                    classesToWrite.remove(cls);  // for an error check
+                    classesToWrite.remove(cls);
+                    je.setMethod(deflate ? JarEntry.DEFLATED : JarEntry.STORED);
+                    if (needCRC) {
+                        je.setMethod(JarEntry.STORED);
+                        je.setSize(bufOut.size());
+                        je.setCrc(crc.getValue());
+                    }
+                    out.putNextEntry(je);
+                    bufOut.writeTo(out);
                 } else {
-                    // collect data & maybe CRC
-                    file.writeTo(needCRC ? crcOut : bufOut);
+                    if (needCRC) {
+                        crc.reset();
+                        file.writeTo(new CheckedOutputStream(OutputStream.nullOutputStream(), crc));
+                        je.setMethod(JarEntry.STORED);
+                        je.setSize(file.getFileLength());
+                        je.setCrc(crc.getValue());
+                        if (verbose > 0) {
+                            Utils.log.info("stored size=" + file.getFileLength()
+                                    + " and crc=" + crc.getValue());
+                        }
+                    } else {
+                        je.setMethod(JarEntry.DEFLATED);
+                    }
+                    out.putNextEntry(je);
+                    file.writeTo(out);
                 }
-                je.setMethod(deflate ? JarEntry.DEFLATED : JarEntry.STORED);
-                if (needCRC) {
-                    if (verbose > 0)
-                        Utils.log.info("stored size="+bufOut.size()+" and crc="+crc.getValue());
-
-                    je.setMethod(JarEntry.STORED);
-                    je.setSize(bufOut.size());
-                    je.setCrc(crc.getValue());
-                }
-                if (keepModtime) {
-                    LocalDateTime ldt = LocalDateTime
-                            .ofEpochSecond(file.modtime, 0, ZoneOffset.UTC);
-                    je.setTimeLocal(ldt);
-                } else {
-                    je.setTime((long)modtime * 1000);
-                }
-                out.putNextEntry(je);
-                bufOut.writeTo(out);
                 out.closeEntry();
-                if (verbose > 0)
-                    Utils.log.info("Writing "+Utils.zeString((ZipEntry)je));
+                if (verbose > 0) {
+                    Utils.log.info("Writing " + Utils.zeString((ZipEntry) je));
+                }
+            } finally {
+                file.releaseContents();
             }
-            assert(classesToWrite.isEmpty());
-            props.setProperty(io.pack200.Pack200.Unpacker.PROGRESS,"100");
-            pkg.reset();  // reset for the next segment, if any
         }
     }
 }

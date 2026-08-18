@@ -43,6 +43,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.SequenceInputStream;
+import java.nio.ByteBuffer;
+import java.nio.file.Files;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -117,11 +119,18 @@ class Package {
 
 
     public void reset() {
+        releaseFileBits();
         cp = new ConstantPool.IndexGroup();
         classes.clear();
         files.clear();
         BandStructure.nextSeqForDebug = 0;
         observedHighestClassVersion = null;
+    }
+
+    void releaseFileBits() {
+        for (File file : files) {
+            file.releaseContents();
+        }
     }
 
     // Special empty versions of Code and InnerClasses, used for markers.
@@ -755,6 +764,7 @@ class Package {
         Class stubClass;  // if this is a stub, here's the class
         ArrayList<byte[]> prepend = new ArrayList<>();  // list of byte[]
         java.io.ByteArrayOutputStream append = new ByteArrayOutputStream();
+        FileBitsSpill.Handle spill;
 
         File(Utf8Entry name) {
             this.name = name;
@@ -820,10 +830,56 @@ class Package {
             return new java.io.File(parent, fname);
         }
 
-        public void addBytes(byte[] bytes) {
+        /**
+         * Choose heap vs spill now that {@code file_size} is known.
+         * Class stubs keep a null buffer.
+         */
+        void beginContents(long size) throws IOException {
+            if (isClassStub()) {
+                return;
+            }
+            if (size <= 0) {
+                append = new ByteArrayOutputStream(0);
+                return;
+            }
+            if (!FileBitsSpill.shouldSpill(size)) {
+                append = new ByteArrayOutputStream((int) size);
+                return;
+            }
+            prepend = new ArrayList<>();
+            append = null;
+            spill = FileBitsSpill.create(null, size);
+        }
+
+        void releaseContents() {
+            if (spill != null) {
+                spill.release();
+                spill = null;
+            }
+            if (append != null) {
+                append.reset();
+            }
+        }
+
+        boolean isSpilled() {
+            return spill != null;
+        }
+
+        public void addBytes(byte[] bytes) throws IOException {
             addBytes(bytes, 0, bytes.length);
         }
-        public void addBytes(byte[] bytes, int off, int len) {
+        public void addBytes(byte[] bytes, int off, int len) throws IOException {
+            if (len <= 0) {
+                return;
+            }
+            if (spill != null) {
+                spill.channel.write(ByteBuffer.wrap(bytes, off, len));
+                spill.written += len;
+                return;
+            }
+            if (append == null) {
+                return;
+            }
             if (((append.size() | len) << 2) < 0) {
                 prepend.add(append.toByteArray());
                 append.reset();
@@ -831,6 +887,9 @@ class Package {
             append.write(bytes, off, len);
         }
         public long getFileLength() {
+            if (spill != null) {
+                return spill.written;
+            }
             long len = 0;
             if (prepend == null || append == null)  return 0;
             for (byte[] block : prepend) {
@@ -840,6 +899,22 @@ class Package {
             return len;
         }
         public void writeTo(OutputStream out) throws IOException {
+            if (spill != null) {
+                spill.channel.position(0);
+                byte[] buf = new byte[1 << 16];
+                long remaining = spill.written;
+                while (remaining > 0) {
+                    int nr = (int) Math.min(buf.length, remaining);
+                    int n = spill.channel.read(ByteBuffer.wrap(buf, 0, nr));
+                    if (n < 0) {
+                        throw new IOException("Unexpected EOF in file_bits spill "
+                                + spill.path);
+                    }
+                    out.write(buf, 0, n);
+                    remaining -= n;
+                }
+                return;
+            }
             if (prepend == null || append == null)  return;
             for (byte[] block : prepend) {
                 out.write(block);
@@ -854,6 +929,13 @@ class Package {
             }
         }
         public InputStream getInputStream() {
+            if (spill != null) {
+                try {
+                    return Files.newInputStream(spill.path);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            }
             InputStream in = new ByteArrayInputStream(append.toByteArray());
             if (prepend.isEmpty())  return in;
             List<InputStream> isa = new ArrayList<>(prepend.size()+1);

@@ -613,7 +613,24 @@ public abstract class Pack200 {
          */
         String DEFLATE_HINT      = "unpack.deflate.hint";
 
+        /**
+         * Directory for oversized {@code file_bits} spill files during unpack.
+         * Set this to a directory the process already has permission to write
+         * (typically the cache directory next to the output JAR).
+         * Do not point it at {@code java.io.tmpdir} on locked-down hosts;
+         * that tree is often not writable.
+         * When unset, {@link #unpack(File, JarOutputStream)} uses the pack
+         * file's parent. Stream unpack with no directory falls back to
+         * {@code java.io.tmpdir} only after a write probe.
+         */
+        String SPILL_DIR         = "unpack.spill.dir";
 
+        /**
+         * Resources larger than this many bytes are spilled under
+         * {@link #SPILL_DIR} instead of an on-heap buffer.
+         * Default is 4194304 (4 MiB). {@code 0} spills every non-empty resource.
+         */
+        String SPILL_THRESHOLD   = "unpack.spill.threshold";
 
         /**
          * The unpacker's progress as a percentage, as periodically
@@ -689,15 +706,18 @@ public abstract class Pack200 {
     private static Class<?> packerImpl;
     static {
         try {
-            packerImpl = Class.forName("sun.java.util.jar.pack.PackerImpl");
+            packerImpl = Class.forName("io.pack200.pack.PackerImpl");
         } catch (ClassNotFoundException e) {
-            //ignore
+            try {
+                packerImpl = Class.forName("sun.java.util.jar.pack.PackerImpl");
+            } catch (ClassNotFoundException ignore) {
+            }
         }
     }
     private static Class<?> unpackerImpl;
     static {
         try {
-            Class.forName("io.pack200.pack.UnpackerImpl");
+            unpackerImpl = Class.forName("io.pack200.pack.UnpackerImpl");
         } catch (ClassNotFoundException e) {
             //ignore
         }
@@ -708,8 +728,11 @@ public abstract class Pack200 {
         try {
             Class<?> impl = (PACK_PROVIDER.equals(prop))? packerImpl: unpackerImpl;
             if (impl == null) {
+                    String fallback = PACK_PROVIDER.equals(prop)
+                            ? "io.pack200.pack.PackerImpl"
+                            : "io.pack200.pack.UnpackerImpl";
                     try {
-                        impl = Class.forName("io.pack200.pack.UnpackerImpl");
+                        impl = Class.forName(fallback);
                     } catch (ClassNotFoundException e) {
                         // ignore
                     }

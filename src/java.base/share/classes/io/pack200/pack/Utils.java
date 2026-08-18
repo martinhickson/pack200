@@ -167,8 +167,15 @@ class Utils {
         }
 
         public void warning(String msg, Object param) {
-                getLogger().warning(msg, param);
+            if (nolog) {
+                return;
             }
+            if (param == null) {
+                System.err.println(msg);
+            } else {
+                System.err.println(msg + ": " + param);
+            }
+        }
 
         public void warning(String msg) {
             warning(msg, null);

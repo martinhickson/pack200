@@ -908,7 +908,7 @@ class PackageReader extends BandStructure {
 
         byte[] buf = new byte[1<<16];
         for (int i = 0; i < numFiles; i++) {
-            // %%% Use a big temp file for file bits?
+            // file_size is known; spill large resources instead of BAOS grow.
             Utf8Entry name = (Utf8Entry) file_name.getRef();
             long size = fileLengths[i];
             File file = pkg.new File(name);
@@ -920,16 +920,27 @@ class PackageReader extends BandStructure {
                 file.options |= file_options.getInt();
             if (verbose > 1)
                 Utils.log.fine("Reading "+size+" bytes of "+name.stringValue());
-            long toRead = size;
-            while (toRead > 0) {
-                int nr = buf.length;
-                if (nr > toRead)  nr = (int) toRead;
-                nr = file_bits.getInputStream().read(buf, 0, nr);
-                if (nr < 0)  throw new EOFException();
-                file.addBytes(buf, 0, nr);
-                toRead -= nr;
+            boolean added = false;
+            try {
+                if (!file.isClassStub()) {
+                    file.beginContents(size);
+                }
+                long toRead = size;
+                while (toRead > 0) {
+                    int nr = buf.length;
+                    if (nr > toRead)  nr = (int) toRead;
+                    nr = file_bits.getInputStream().read(buf, 0, nr);
+                    if (nr < 0)  throw new EOFException();
+                    file.addBytes(buf, 0, nr);
+                    toRead -= nr;
+                }
+                pkg.addFile(file);
+                added = true;
+            } finally {
+                if (!added) {
+                    file.releaseContents();
+                }
             }
-            pkg.addFile(file);
             if (file.isClassStub()) {
                 assert(file.getFileLength() == 0);
                 Class cls = nextClass.next();
