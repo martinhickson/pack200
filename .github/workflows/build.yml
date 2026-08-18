@@ -13,6 +13,11 @@ on:
         required: false
         type: boolean
         default: false
+      deploy_to_maven_central:
+        description: 'Also publish to Maven Central'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -57,6 +62,58 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
+
+      - name: Validate Maven Central configuration
+        if: inputs.deploy_to_maven_central
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          MAVEN_CENTRAL_GPG_PRIVATE_KEY: ${{ secrets.MAVEN_CENTRAL_GPG_PRIVATE_KEY }}
+        run: |
+          if [ -z "$MAVEN_CENTRAL_USERNAME" ] || [ -z "$MAVEN_CENTRAL_PASSWORD" ] || [ -z "$MAVEN_CENTRAL_GPG_PRIVATE_KEY" ]; then
+            echo "::error::Maven Central publishing is not configured for this repository."
+            exit 1
+          fi
+
+      - name: Configure Maven Central credentials
+        if: inputs.deploy_to_maven_central
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+        run: |
+          mkdir -p ~/.m2
+          if [ ! -f ~/.m2/settings.xml ]; then
+            cat > ~/.m2/settings.xml <<'EOF'
+          <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                    xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
+                    http://maven.apache.org/xsd/settings-1.0.0.xsd">
+            <servers>
+            </servers>
+          </settings>
+          EOF
+          fi
+          sed -i "/<\/servers>/i\\
+              <server>\\
+                <id>central</id>\\
+                <username>${MAVEN_CENTRAL_USERNAME}</username>\\
+                <password>${MAVEN_CENTRAL_PASSWORD}</password>\\
+              </server>" ~/.m2/settings.xml
+
+      - name: Import GPG signing key
+        if: inputs.deploy_to_maven_central
+        env:
+          MAVEN_CENTRAL_GPG_PRIVATE_KEY: ${{ secrets.MAVEN_CENTRAL_GPG_PRIVATE_KEY }}
+        run: |
+          echo "${MAVEN_CENTRAL_GPG_PRIVATE_KEY}" | gpg --batch --import --pinentry-mode loopback
+
+      - name: Publish to Maven Central
+        if: inputs.deploy_to_maven_central
+        run: |
+          mvn deploy -ntp -Pcentral-release -DskipTests=true \
+            -Dgpg.passphrase="${MAVEN_CENTRAL_GPG_PASSPHRASE}"
+        env:
+          MAVEN_CENTRAL_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
       
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
